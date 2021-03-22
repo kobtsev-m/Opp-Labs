@@ -1,0 +1,6 @@
+# Clion
+.idea/
+cmake-*/
+
+# Testing files
+Test/
