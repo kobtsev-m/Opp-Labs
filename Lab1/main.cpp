@@ -1,107 +1,283 @@
 #include <iostream>
+#include <cmath>
+#include <mpi.h>
 
 #define EPSILON (1e-5)
 
-void initMatrix(double **matrix, int n) {
-    for (int i = 0; i < n; ++i) {
-        matrix[i] = new double [n];
+void copyMem(double *ptrTo, double *ptrFrom, int k) {
+    for (int i = 0; i < k; ++i) {
+        ptrTo[i] = ptrFrom[i];
+    }
+}
+
+void MPI1_fillData(double *A, double *x, double *b, int n, int m, int idx) {
+    for (int i = idx; i < idx + m; ++i) {
         for (int j = 0; j < n; ++j) {
-            matrix[i][j] = i == j ? 2.0 : 1.0;
+            A[j + i*n] = (i == j) ? 2.0 : 1.0;
         }
     }
-}
-
-void clearMatrix(double **matrix, int n) {
-    for (int i = 0; i < n; ++i) {
-        delete[] matrix[i];
-    }
-    delete[] matrix;
-}
-
-void initVectors(double *x, double *b, int n) {
     for (int i = 0; i < n; ++i) {
         x[i] = 0;
         b[i] = n+1;
     }
 }
 
-double* calculateYn(double **a, const double *xn, const double *b, int n) {
-    auto *yn = new double [n];
-    for (int i = 0; i < n; ++i) {
+double* MPI1_calculateYn(double *A, double *xn, double *b, int n, int m, int idx) {
+    auto *yn = new double[n];
+    for (int i = idx; i < idx + m; ++i) {
         yn[i] = -b[i];
         for (int j = 0; j < n; ++j) {
-            yn[i] += a[i][j] * xn[i];
+            yn[i] += A[j + i*n] * xn[i];
         }
     }
     return yn;
 }
 
-double calculateTn(double **a, const double *yn, int n) {
-    double tnNumerator = 0.0;
-    double tnDenominator = 0.0;
-    auto *ayn = new double [n];
+bool MPI1_isSolutionFound(double *yn, double *b, int n) {
+    double *length = new double[2] {0.0, 0.0};
     for (int i = 0; i < n; ++i) {
+        length[0] += yn[i] * yn[i];
+        length[1] += b[i] * b[i];
+    }
+    return sqrt(length[0]) / sqrt(length[1]) < EPSILON;
+}
+
+double* MPI1_calculateTn(double *A, double *yn, int n, int m, int idx) {
+    auto *tn = new double[2] {0.0, 0.0};
+    auto *Ayn = new double[n];
+    for (int i = idx; i < idx + m; ++i) {
         for (int j = 0; j < n; ++j) {
-            ayn[i] += a[i][j] * yn[i];
+            Ayn[i] += A[j + i*n] * yn[i];
         }
-        tnNumerator += yn[i] * ayn[i];
-        tnDenominator += ayn[i] * ayn[i];
+        tn[0] += yn[i] * Ayn[i];
+        tn[1] += Ayn[i] * Ayn[i];
     }
-    delete[] ayn;
-    return tnNumerator / tnDenominator;
+    delete[] Ayn;
+    return tn;
 }
 
-void calculateNextX(double *xn, const double *yn, double tn, int n) {
+void MPI1_calculateNextX(double *x, double *yn, double tn, int n) {
     for (int i = 0; i < n; ++i) {
-        xn[i] -= tn * yn[i];
+        x[i] -= yn[i] * tn;
     }
 }
 
-bool isSolutionFound(const double *yn, const double *b, int n) {
-    double lengthYn = 0.0;
-    double lengthB = 0.0;
-    for (int i = 0; i < n; ++i) {
-        lengthYn += yn[i] * yn[i];
-        lengthB += b[i] * b[i];
-    }
-    return (lengthYn / lengthB) < EPSILON;
-}
+double* mpi1(int n, int m, int idx) {
 
-void iterate(double **matrix_a, double *xn, double *b, int n) {
-    while (true) {
-        auto *yn = calculateYn(matrix_a, xn, b, n);
-        if (isSolutionFound(yn, b, n)) {
+    auto *A = new double[n * m];
+    auto *x = new double[n];
+    auto *b = new double[n];
+
+    MPI1_fillData(A, x, b, n, m, idx);
+
+    int k = 0;
+    while (k++ < 10) {
+        // y(n) = Ax(n) - b
+        auto *yn = MPI1_calculateYn(A, x, b, n, m, idx);
+        auto *ynFinal = new double[n];
+        MPI_Allreduce(yn, ynFinal, n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        delete[] yn;
+
+        // Check |y(n)| / |b| < Epsilon
+        if (MPI1_isSolutionFound(ynFinal, b, n)) {
             break;
         }
-        double tn = calculateTn(matrix_a, yn, n);
-        calculateNextX(xn, yn, tn, n);
-        delete[] yn;
+
+        // t(n) = (y(n), Ay(n)) / (Ay(n), Ay(n))
+        double *tn = MPI1_calculateTn(A, ynFinal, n, m, idx);
+        auto *tnFinal = new double[2];
+        MPI_Allreduce(tn, tnFinal, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        double tnResult = tnFinal[0] / tnFinal[1];
+        delete[] tn;
+        delete[] tnFinal;
+
+        // x(n+1) = x(n) - t(n)*y(n)
+        MPI1_calculateNextX(x, ynFinal, tnResult, n);
+        delete[] ynFinal;
+    }
+
+    delete[] A;
+    delete[] b;
+
+    return x;
+}
+
+void MPI2_fillData(double *A, double *x, double *b, int n, int m, int idx) {
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < m; ++j) {
+            A[j + i*n] = (i == idx + j) ? 2.0 : 1.0;
+        }
+    }
+    for (int i = 0; i < m; ++i) {
+        x[i] = 0;
+        b[i] = n+1;
     }
 }
 
-void printAnswer(const double *x, int n) {
+double* MPI2_calculateYn(double *A, double *xn, double *b, int n, int m, int idx) {
+    auto *yn = new double[n];
+    for (int i = 0; i < n; ++i) {
+        if (idx <= i  && i < idx + m) {
+            yn[i] = -b[i - idx];
+        }
+        for (int j = 0; j < m; ++j) {
+            yn[i] += A[j + i*n] * xn[j];
+        }
+    }
+    return yn;
+}
+
+double* MPI2_getVectorsLength(double *yn, double *b, int m) {
+    double *length = new double[2] {0.0, 0.0};
+    for (int i = 0; i < m; ++i) {
+        length[0] += yn[i] * yn[i];
+        length[1] += b[i] * b[i];
+    }
+    return length;
+}
+
+double* MPI2_calculateAyn(double *A, double *yn, int n, int m) {
+    auto *Ayn = new double[n];
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < m; ++j) {
+            Ayn[i] += A[j + i*n] * yn[j];
+        }
+    }
+    return Ayn;
+}
+
+double* MPI2_calculateTn(double *yn, double *Ayn, int m) {
+    double *tn = new double[2] {0.0, 0.0};
+    for (int i = 0; i < m; ++i) {
+        tn[0] += yn[i] * Ayn[i];
+        tn[1] += Ayn[i] * Ayn[i];
+    }
+    return tn;
+}
+
+double* MPI2_calculateNextX(double *xn, double *yn, double tn, int n, int m, int idx) {
+    auto *nextX = new double[n];
+    for (int i = 0; i < m; ++i) {
+        nextX[idx + i] = xn[i] - tn * yn[i];
+    }
+    return nextX;
+}
+
+double* mpi2(int n, int m, int idx) {
+
+    auto *A = new double[n * m];
+    auto *x = new double[m];
+    auto *b = new double[m];
+
+    MPI2_fillData(A, x, b, n, m, idx);
+
+    while (true) {
+        // y(n) = Ax(n) - b
+        auto *yn = MPI2_calculateYn(A, x, b, n, m, idx);
+        auto *ynFinal = new double[n];
+        MPI_Allreduce(yn, ynFinal, n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        delete[] yn;
+
+        // y(n) cut
+        auto *ynCut = new double [m];
+        copyMem(ynCut, &ynFinal[idx], m);
+        delete[] ynFinal;
+
+        // Check |y(n)| / |b| < Epsilon
+        auto *length = MPI2_getVectorsLength(ynCut, b, m);
+        auto *lengthFinal = new double[2];
+        MPI_Allreduce(length, lengthFinal, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        if (sqrt(lengthFinal[0]) / sqrt(lengthFinal[1]) < EPSILON) {
+            break;
+        }
+        delete[] length;
+        delete[] lengthFinal;
+
+        // Ay(n) calculation
+        double *Ayn = MPI2_calculateAyn(A, ynCut, n, m);
+        auto *AynFinal = new double [n];
+        MPI_Allreduce(Ayn, AynFinal, n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        delete[] Ayn;
+
+        // Ay(n) cut
+        auto *AynCut = new double [m];
+        copyMem(AynCut, &AynFinal[idx], m);
+        delete[] AynFinal;
+
+        // t(n) = (y(n), Ay(n)) / (Ay(n), Ay(n))
+        double *tn = MPI2_calculateTn(ynCut, AynCut, m);
+        auto *tnFinal = new double[2];
+        MPI_Allreduce(tn, tnFinal, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        double tnResult = tnFinal[0] / tnFinal[1];
+        delete[] AynCut;
+        delete[] tn;
+        delete[] tnFinal;
+
+        // x(n+1) = x(n) - t(n)*y(n)
+        auto *xNext = MPI2_calculateNextX(x, ynCut, tnResult, n, m, idx);
+        auto *xNextFinal = new double [n];
+        MPI_Allreduce(xNext, xNextFinal, n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        delete[] ynCut;
+        delete[] xNext;
+
+        // x(n) cut
+        copyMem(x, &xNextFinal[idx], m);
+        delete[] xNextFinal;
+    }
+
+    // Final x calculation
+    auto *result = new double [n];
+    copyMem(result, &x[idx], m);
+    auto *resultFinal = new double [n];
+    MPI_Allreduce(result, resultFinal, n, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    delete[] result;
+
+    delete[] A;
+    delete[] x;
+    delete[] b;
+
+    return resultFinal;
+}
+
+void printAnswer(double *x, int n) {
     for (int i = 0; i < n; ++i) {
         printf("x%d: %.2f\n", i, x[i]);
     }
 }
 
+int calculateIdx(int n, int procTotal, int procRank) {
+    int idx = 0;
+    for (int i = 0; i < procRank; ++i) {
+        idx += (n - idx) / (procTotal - i);
+    }
+    return idx;
+}
+
 int main(int argc, char* argv[]) {
 
-    int n = argc > 1 ? strtol(argv[1], nullptr, 9) : 3;
+    if (argc != 2) {
+        std::cout << "Please, enter mpi variant: 1, 2" << std::endl;
+        return 0;
+    }
 
-    auto **matrix_a = new double *[n];
-    auto *x = new double [n];
-    auto *b = new double [n];
+    int procTotal, procRank;
 
-    initMatrix(matrix_a, n);
-    initVectors(x, b, n);
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &procTotal);
+    MPI_Comm_rank(MPI_COMM_WORLD, &procRank);
 
-    iterate(matrix_a, x, b, n);
-    printAnswer(x, n);
+    int n = 10;
+    int idx = calculateIdx(n, procTotal, procRank);
+    int m = (n - idx) / (procTotal - procRank);
 
-    clearMatrix(matrix_a, n);
-    delete[] x;
-    delete[] b;
+
+    bool isFirstVariant = atoi(argv[1]) == 1;
+    double *result = isFirstVariant ? mpi1(n, m, idx) : mpi2(n, m, idx);
+
+    MPI_Finalize();
+
+    printAnswer(result, n);
+    delete[] result;
 
     return 0;
 }
