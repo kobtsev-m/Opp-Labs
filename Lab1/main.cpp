@@ -40,7 +40,7 @@ bool MPI1_isSolutionFound(double *yn, double *b, int n) {
         length[0] += yn[i] * yn[i];
         length[1] += b[i] * b[i];
     }
-    bool isFound = sqrt(length[0]) / sqrt(length[1]) < EPSILON;
+    bool isFound = sqrt(std::abs(length[0] / length[1])) < EPSILON;
     delete[] length;
     return isFound;
 }
@@ -73,8 +73,7 @@ double* mpi1(int n, int m, int idx) {
 
     MPI1_fillData(A, x, b, n, m, idx);
 
-    int k = 0;
-    while (k++ < INF) {
+    for (int k = 0; k < INF; ++k) {
         // y(n) = Ax(n) - b
         auto *yn = MPI1_calculateYn(A, x, b, n, m, idx);
         auto *ynFinal = new double[n];
@@ -177,8 +176,7 @@ double* mpi2(int n, int m, int idx) {
 
     auto *result = new double [n];
 
-    int k = 0;
-    while (k++ < INF) {
+    for (int k = 0; k < INF; ++k) {
         // y(n) = Ax(n) - b
         auto *yn = MPI2_calculateYn(A, x, b, n, m, idx);
         auto *ynFinal = new double[n];
@@ -193,12 +191,12 @@ double* mpi2(int n, int m, int idx) {
         auto *length = MPI2_getVectorsLength(ynCut, b, m);
         auto *lengthFinal = new double[2];
         MPI_Allreduce(length, lengthFinal, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        bool isSolutionFound = sqrt(lengthFinal[0]) / sqrt(lengthFinal[1]) < EPSILON;
+        double lengthAttitude = sqrt(std::abs(lengthFinal[0] / lengthFinal[1]));
         delete[] length;
         delete[] lengthFinal;
 
         // Check if solution is found
-        if (isSolutionFound) {
+        if (lengthAttitude < EPSILON) {
             delete[] ynCut;
             break;
         }
@@ -276,10 +274,13 @@ int main(int argc, char* argv[]) {
     int idx = calculateIdx(n, procTotal, procRank);
     int m = (n - idx) / (procTotal - procRank);
 
+    double startTime = MPI_Wtime();
     double *result = variant == 1 ? mpi1(n, m, idx) : mpi2(n, m, idx);
+    double endTime = MPI_Wtime();
 
     if (!procRank) {
         printAnswer(result, n);
+        printf("Work time: %.2f seconds\n", endTime - startTime);
     }
     delete[] result;
 
