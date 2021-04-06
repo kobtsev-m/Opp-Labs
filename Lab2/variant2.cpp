@@ -1,12 +1,12 @@
 #include <sys/time.h>
 #include <iostream>
 #include <cmath>
+#include <omp.h>
 
 #define EPSILON (10e-3)
-#define INF (10e6)
 
 double randDouble(double max) {
-    return static_cast<double>(rand()) / (static_cast<double>(RAND_MAX / max));
+    return static_cast<double>(rand()) / static_cast<double>(RAND_MAX / max);
 }
 
 void fillData(double *A, double *x, double *b, int n) {
@@ -73,46 +73,6 @@ void calculateNextX(double *x, double *yn, double tn, int n) {
     }
 }
 
-double calculateElapsedTime(struct timeval startTime, struct timeval endTime) {
-    double deltaSec = (endTime.tv_sec - startTime.tv_sec);
-    double deltaUSec = (endTime.tv_usec - startTime.tv_usec);
-    return deltaSec + deltaUSec/10e6;
-}
-
-double iter(int n) {
-
-    auto *A = new double[n * n];
-    auto *x = new double[n];
-    auto *b = new double[n];
-    struct timeval startTime, endTime;
-
-    fillData(A, x, b, n);
-
-    gettimeofday(&startTime, nullptr);
-
-    for (int k = 0; k < INF; ++k) {
-        double *yn = calculateYn(A, x, b, n);
-
-        if (isSolutionFound(yn, b, n)) {
-            delete[] yn;
-            break;
-        }
-
-        double tn = calculateTn(A, yn, n);
-
-        calculateNextX(x, yn, tn, n);
-        delete[] yn;
-    }
-
-    gettimeofday(&endTime, nullptr);
-
-    delete[] A;
-    delete[] x;
-    delete[] b;
-
-    return calculateElapsedTime(startTime, endTime);
-}
-
 int main(int argc, char *argv[]) {
 
     if (argc != 2) {
@@ -121,7 +81,44 @@ int main(int argc, char *argv[]) {
     }
 
     int n = atoi(argv[1]);
-    printf("Working time: %.2f seconds\n", iter(n));
+
+    auto *A = new double[n * n];
+    auto *x = new double[n];
+    auto *b = new double[n];
+
+    fillData(A, x, b, n);
+
+    struct timeval startTime, endTime;
+    gettimeofday(&startTime, nullptr);
+
+    bool running = true;
+
+    #pragma omp parallel private(running)
+    {
+        double *yn = calculateYn(A, x, b, n);
+
+        if (isSolutionFound(yn, b, n)) {
+            running = false;
+        }
+
+        if (running) {
+            double tn = calculateTn(A, yn, n);
+            calculateNextX(x, yn, tn, n);
+            delete[] yn;
+        }
+    }
+
+    gettimeofday(&endTime, nullptr);
+
+    delete[] A;
+    delete[] x;
+    delete[] b;
+
+    double deltaSec = (endTime.tv_sec - startTime.tv_sec);
+    double deltaUSec = (endTime.tv_usec - startTime.tv_usec);
+    double delta = deltaSec + deltaUSec / 10e6;
+
+    printf("Working time: %.2f seconds\n", delta);
 
     return 0;
 }
