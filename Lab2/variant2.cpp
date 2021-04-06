@@ -91,23 +91,33 @@ int main(int argc, char *argv[]) {
     struct timeval startTime, endTime;
     gettimeofday(&startTime, nullptr);
 
+    volatile bool running = true;
     int inf = 10e6;
-    int iter = -1;
 
     #pragma omp parallel
     {
-        int i = omp_get_thread_num()*inf / omp_get_num_threads();
-        int stop = (omp_get_thread_num() + 1)*inf / omp_get_num_threads();
+        int i, stop;
+        #pragma omp critical
+        {
+            i = give;
+            give += inf / omp_get_num_threads();
+            stop = give;
 
-        for(; i < stop && iter < 0; ++i) {
+            if (omp_get_thread_num() == omp_get_num_threads()-1) {
+                stop = N;
+            }
+        }
+        for(; i < stop && running; ++i){
             double *yn = calculateYn(A, x, b, n);
 
             if (isSolutionFound(yn, b, n)) {
-                iter = i;
+                running = false;
             }
 
-            double tn = calculateTn(A, yn, n);
-            calculateNextX(x, yn, tn, n);
+            if (running) {
+                double tn = calculateTn(A, yn, n);
+                calculateNextX(x, yn, tn, n);
+            }
             delete[] yn;
         }
     }
