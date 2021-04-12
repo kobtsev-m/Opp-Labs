@@ -1,9 +1,8 @@
 #include <sys/time.h>
 #include <iostream>
 #include <cmath>
-#include <omp.h>
 
-#define EPSILON (10e-3)
+#define EPSILON (10e-4)
 #define INF (10e6)
 
 double randDouble(double max) {
@@ -32,7 +31,7 @@ void fillData(double *A, double *x, double *b, int n) {
 
 double* calculateYn(double *A, double *x, double *b, int n) {
     auto *yn = new double[n];
-#pragma omp parallel for
+    #pragma omp parallel for
     for (int i = 0; i < n; ++i) {
         yn[i] = -b[i];
         for (int j = 0; j < n; ++j) {
@@ -44,7 +43,7 @@ double* calculateYn(double *A, double *x, double *b, int n) {
 
 bool isSolutionFound(double *yn, double *b, int n) {
     auto *length = new double[2]();
-#pragma omp parallel for
+    #pragma omp parallel for
     for (int i = 0; i < n; ++i) {
         length[0] += yn[i] * yn[i];
         length[1] += b[i] * b[i];
@@ -57,7 +56,7 @@ bool isSolutionFound(double *yn, double *b, int n) {
 double calculateTn(double *A, double *yn, int n) {
     auto *tn = new double[2]();
     double AynTmp;
-#pragma omp parallel for
+    #pragma omp parallel for
     for (int i = 0; i < n; ++i) {
         AynTmp = 0.0;
         for (int j = 0; j < n; ++j) {
@@ -72,7 +71,7 @@ double calculateTn(double *A, double *yn, int n) {
 }
 
 void calculateNextX(double *x, double *yn, double tn, int n) {
-#pragma omp parallel for
+    #pragma omp parallel for
     for (int i = 0; i < n; ++i) {
         x[i] -= yn[i] * tn;
     }

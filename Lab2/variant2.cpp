@@ -1,9 +1,9 @@
 #include <sys/time.h>
 #include <iostream>
 #include <cmath>
-#include <omp.h>
 
-#define EPSILON (10e-3)
+#define EPSILON (10e-4)
+#define INF (10e6)
 
 double randDouble(double max) {
     return static_cast<double>(rand()) / static_cast<double>(RAND_MAX / max);
@@ -29,19 +29,9 @@ void fillData(double *A, double *x, double *b, int n) {
     delete[] u;
 }
 
-double* calculateYn(double *A, double *x, double *b, int n) {
-    auto *yn = new double[n];
-    for (int i = 0; i < n; ++i) {
-        yn[i] = -b[i];
-        for (int j = 0; j < n; ++j) {
-            yn[i] += A[j + i*n] * x[j];
-        }
-    }
-    return yn;
-}
-
 bool isSolutionFound(double *yn, double *b, int n) {
     auto *length = new double[2]();
+    #pragma omp for
     for (int i = 0; i < n; ++i) {
         length[0] += yn[i] * yn[i];
         length[1] += b[i] * b[i];
@@ -49,28 +39,6 @@ bool isSolutionFound(double *yn, double *b, int n) {
     bool isFound = sqrt(length[0] / length[1]) < EPSILON;
     delete[] length;
     return isFound;
-}
-
-double calculateTn(double *A, double *yn, int n) {
-    auto *tn = new double[2]();
-    double AynTmp;
-    for (int i = 0; i < n; ++i) {
-        AynTmp = 0.0;
-        for (int j = 0; j < n; ++j) {
-            AynTmp += A[j + i*n] * yn[j];
-        }
-        tn[0] += yn[i] * AynTmp;
-        tn[1] += AynTmp * AynTmp;
-    }
-    double tnResult = tn[0] / tn[1];
-    delete[] tn;
-    return tnResult;
-}
-
-void calculateNextX(double *x, double *yn, double tn, int n) {
-    for (int i = 0; i < n; ++i) {
-        x[i] -= yn[i] * tn;
-    }
 }
 
 int main(int argc, char *argv[]) {
@@ -92,32 +60,51 @@ int main(int argc, char *argv[]) {
     gettimeofday(&startTime, nullptr);
 
     volatile bool running = true;
-    int inf = 10e6;
 
-    #pragma omp parallel
+    #pragma omp parallel shared(running)
     {
-        int i, stop;
-        #pragma omp critical
-        {
-            i = give;
-            give += inf / omp_get_num_threads();
-            stop = give;
-
-            if (omp_get_thread_num() == omp_get_num_threads()-1) {
-                stop = N;
+        for (int k = 0; k < INF && running; ++k) {
+            // Calculating Yn
+            auto *yn = new double[n];
+            #pragma omp for
+            for (int i = 0; i < n; ++i) {
+                yn[i] = -b[i];
+                for (int j = 0; j < n; ++j) {
+                    yn[i] += A[j + i*n] * x[j];
+                }
             }
-        }
-        for(; i < stop && running; ++i){
-            double *yn = calculateYn(A, x, b, n);
 
-            if (isSolutionFound(yn, b, n)) {
-                running = false;
+            // Check if solution is found on all threads
+            #pragma omp barrier
+            {
+                if (isSolutionFound(yn, b, n)) {
+                    running = false;
+                }
             }
 
             if (running) {
-                double tn = calculateTn(A, yn, n);
-                calculateNextX(x, yn, tn, n);
+                // Calculating Tn
+                auto *tn = new double[2]();
+                double AynTmp;
+                #pragma omp for
+                for (int i = 0; i < n; ++i) {
+                    AynTmp = 0.0;
+                    for (int j = 0; j < n; ++j) {
+                        AynTmp += A[j + i * n] * yn[j];
+                    }
+                    tn[0] += yn[i] * AynTmp;
+                    tn[1] += AynTmp * AynTmp;
+                }
+                double tnResult = tn[0] / tn[1];
+                delete[] tn;
+
+                // Calculating next x
+                #pragma omp for
+                for (int i = 0; i < n; ++i) {
+                    x[i] -= yn[i] * tnResult;
+                }
             }
+            // Deallocating memory
             delete[] yn;
         }
     }
