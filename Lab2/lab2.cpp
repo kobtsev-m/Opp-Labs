@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cmath>
 
-#define EPSILON (10e-4)
+#define EPSILON (10e-3)
 #define INF (10e6)
 
 double randDouble(double max) {
