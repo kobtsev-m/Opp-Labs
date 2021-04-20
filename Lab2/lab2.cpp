@@ -1,12 +1,24 @@
-#include <sys/time.h>
 #include <iostream>
 #include <cmath>
+#include <omp.h>
 
-#define EPSILON (10e-3)
+#define EPSILON (10e-4)
 #define INF (10e6)
 
 double randDouble(double max) {
     return static_cast<double>(rand()) / static_cast<double>(RAND_MAX / max);
+}
+
+void fillDataTest(double *A, double *x, double *b, int n) {
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            A[j + i*n] = i == j ? 2.0 : 1.0;
+        }
+    }
+    for (int i = 0; i < n; ++i) {
+        x[i] = 0.0;
+        b[i] = (double)(n+1);
+    }
 }
 
 void fillData(double *A, double *x, double *b, int n) {
@@ -29,62 +41,164 @@ void fillData(double *A, double *x, double *b, int n) {
     delete[] u;
 }
 
-double* calculateYn(double *A, double *x, double *b, int n) {
+void omp1(double *A, double *x, double *b, int n) {
+
     auto *yn = new double[n];
-    #pragma omp parallel for
-    for (int i = 0; i < n; ++i) {
-        yn[i] = -b[i];
-        for (int j = 0; j < n; ++j) {
-            yn[i] += A[j + i*n] * x[j];
+    double lenYn = 0.0, lenB = 0.0, tn1 = 0.0, tn2 = 0.0;
+
+    for (int k = 0; k < INF; ++k) {
+
+        // Calculating Yn
+        #pragma omp parallel for
+        // #pragma omp parallel for schedule(static, 1000)
+        // #pragma omp parallel for schedule(static, 3000)
+        // #pragma omp parallel for schedule(dynamic, 1000)
+        // #pragma omp parallel for schedule(dynamic, 3000)
+        // #pragma omp parallel for schedule(guided, 1000)
+        // #pragma omp parallel for schedule(guided, 3000)
+        for (int i = 0; i < n; ++i) {
+            yn[i] = -b[i];
+            for (int j = 0; j < n; ++j) {
+                yn[i] += A[j + i * n] * x[j];
+            }
+        }
+
+        // Checking if solution if found
+        #pragma omp parallel for reduction(+: lenYn) reduction(+: lenB)
+        // #pragma omp parallel for schedule(static, 1000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(static, 3000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(dynamic, 1000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(dynamic, 3000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(guided, 1000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(guided, 3000) reduction(+: tn1) reduction(+: tn2)
+        for (int i = 0; i < n; ++i) {
+            lenYn += yn[i] * yn[i];
+            lenB += b[i] * b[i];
+        }
+        if (sqrt(lenYn / lenB) < EPSILON) {
+            break;
+        }
+
+        // Calculating Tn
+        #pragma omp parallel for reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(static, 1000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(static, 3000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(dynamic, 1000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(dynamic, 3000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(guided, 1000) reduction(+: tn1) reduction(+: tn2)
+        // #pragma omp parallel for schedule(guided, 3000) reduction(+: tn1) reduction(+: tn2)
+        for (int i = 0; i < n; ++i) {
+            double AynTmp = 0.0;
+            for (int j = 0; j < n; ++j) {
+                AynTmp += A[j + i * n] * yn[j];
+            }
+            tn1 += yn[i] * AynTmp;
+            tn2 += AynTmp * AynTmp;
+        }
+        double tn = tn1 / tn2;
+
+        // Calculating next x
+        #pragma omp parallel for
+        // #pragma omp parallel for schedule(static, 1000)
+        // #pragma omp parallel for schedule(static, 3000)
+        // #pragma omp parallel for schedule(dynamic, 1000)
+        // #pragma omp parallel for schedule(dynamic, 3000)
+        // #pragma omp parallel for schedule(guided, 1000)
+        // #pragma omp parallel for schedule(guided, 3000)
+        for (int i = 0; i < n; ++i) {
+            x[i] -= yn[i] * tn;
+        }
+
+        lenYn = 0.0;
+        lenB = 0.0;
+        tn1 = 0.0;
+        tn2 = 0.0;
+    }
+
+    delete[] yn;
+}
+
+void omp2(double *A, double *x, double *b, int n) {
+
+    auto *yn = new double[n];
+    double lenYn = 0.0, lenB = 0.0, tn1 = 0.0, tn2 = 0.0;
+
+    bool running = true;
+
+    #pragma omp parallel
+    {
+        for (int k = 0; k < INF && running; ++k) {
+
+            // Calculating Yn
+            #pragma omp for
+            for (int i = 0; i < n; ++i) {
+                yn[i] = -b[i];
+                for (int j = 0; j < n; ++j) {
+                    yn[i] += A[j + i*n] * x[j];
+                }
+            }
+
+            // Check if solution is found
+            #pragma omp for reduction(+: lenYn) reduction(+: lenB)
+            for (int i = 0; i < n; ++i) {
+                lenYn += yn[i] * yn[i];
+                lenB += b[i] * b[i];
+            }
+            #pragma omp barrier
+            {
+                if (sqrt(lenYn / lenB) < EPSILON) {
+                    running = false;
+                }
+            }
+
+            if (running) {
+                // Calculating Tn
+                #pragma omp for reduction(+: tn1) reduction(+: tn2)
+                for (int i = 0; i < n; ++i) {
+                    double AynTmp = 0.0;
+                    for (int j = 0; j < n; ++j) {
+                        AynTmp += A[j + i * n] * yn[j];
+                    }
+                    tn1 += yn[i] * AynTmp;
+                    tn2 += AynTmp * AynTmp;
+                }
+                double tn = tn1 / tn2;
+
+                // Calculating next x
+                #pragma omp for
+                for (int i = 0; i < n; ++i) {
+                    x[i] -= yn[i] * tn;
+                }
+            }
+
+            #pragma omp barrier
+            {
+                lenYn = 0.0;
+                lenB = 0.0;
+                tn1 = 0.0;
+                tn2 = 0.0;
+            }
         }
     }
-    return yn;
+
+    delete[] yn;
 }
 
-bool isSolutionFound(double *yn, double *b, int n) {
-    auto *length = new double[2]();
-    #pragma omp parallel for
-    for (int i = 0; i < n; ++i) {
-        length[0] += yn[i] * yn[i];
-        length[1] += b[i] * b[i];
-    }
-    bool isFound = sqrt(length[0] / length[1]) < EPSILON;
-    delete[] length;
-    return isFound;
-}
-
-double calculateTn(double *A, double *yn, int n) {
-    auto *tn = new double[2]();
-    double AynTmp;
-    #pragma omp parallel for
-    for (int i = 0; i < n; ++i) {
-        AynTmp = 0.0;
-        for (int j = 0; j < n; ++j) {
-            AynTmp += A[j + i*n] * yn[j];
-        }
-        tn[0] += yn[i] * AynTmp;
-        tn[1] += AynTmp * AynTmp;
-    }
-    double tnResult = tn[0] / tn[1];
-    delete[] tn;
-    return tnResult;
-}
-
-void calculateNextX(double *x, double *yn, double tn, int n) {
-    #pragma omp parallel for
-    for (int i = 0; i < n; ++i) {
-        x[i] -= yn[i] * tn;
+void printAnswer(double* x) {
+    for (int i = 0; i < 10; ++i) {
+        printf("x%d: %.1f\n", i, x[i]);
     }
 }
 
 int main(int argc, char *argv[]) {
 
-    if (argc != 2) {
+    if (argc != 3) {
         printf("Wrong arguments number\n");
         return 0;
     }
 
-    int n = atoi(argv[1]);
+    int variant = atoi(argv[1]);
+    int n = atoi(argv[2]);
 
     auto *A = new double[n * n];
     auto *x = new double[n];
@@ -92,34 +206,15 @@ int main(int argc, char *argv[]) {
 
     fillData(A, x, b, n);
 
-    struct timeval startTime, endTime;
-    gettimeofday(&startTime, nullptr);
-
-    for (int k = 0; k < INF; ++k) {
-        double *yn = calculateYn(A, x, b, n);
-
-        if (isSolutionFound(yn, b, n)) {
-            delete[] yn;
-            break;
-        }
-
-        double tn = calculateTn(A, yn, n);
-
-        calculateNextX(x, yn, tn, n);
-        delete[] yn;
-    }
-
-    gettimeofday(&endTime, nullptr);
+    double startTime = omp_get_wtime();
+    variant == 1 ? omp1(A, x, b, n) : omp2(A, x, b, n);
+    double endTime = omp_get_wtime();
 
     delete[] A;
     delete[] x;
     delete[] b;
 
-    double deltaSec = (endTime.tv_sec - startTime.tv_sec);
-    double deltaUSec = (endTime.tv_usec - startTime.tv_usec);
-    double delta = deltaSec + deltaUSec/10e6;
-
-    printf("Working time: %.2f seconds\n", delta);
+    printf("Working time: %.2f seconds\n", endTime - startTime);
 
     return 0;
 }
