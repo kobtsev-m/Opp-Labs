@@ -64,13 +64,13 @@ void omp1(double *A, double *x, double *b, int n) {
         }
 
         // Checking if solution if found
-        #pragma omp parallel for reduction(+: lenYn) reduction(+: lenB)
-        // #pragma omp parallel for schedule(static, 1000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(static, 3000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(dynamic, 1000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(dynamic, 3000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(guided, 1000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(guided, 3000) reduction(+: tn1) reduction(+: tn2)
+        #pragma omp parallel for reduction(+: lenYn, lenB)
+        // #pragma omp parallel for schedule(static, 1000) reduction(+: lenYn, lenB)
+        // #pragma omp parallel for schedule(static, 3000) reduction(+: lenYn, lenB)
+        // #pragma omp parallel for schedule(dynamic, 1000) reduction(+: lenYn, lenB)
+        // #pragma omp parallel for schedule(dynamic, 3000) reduction(+: lenYn, lenB)
+        // #pragma omp parallel for schedule(guided, 1000) reduction(+: lenYn, lenB)
+        // #pragma omp parallel for schedule(guided, 3000) reduction(+: lenYn, lenB)
         for (int i = 0; i < n; ++i) {
             lenYn += yn[i] * yn[i];
             lenB += b[i] * b[i];
@@ -80,13 +80,13 @@ void omp1(double *A, double *x, double *b, int n) {
         }
 
         // Calculating Tn
-        #pragma omp parallel for reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(static, 1000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(static, 3000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(dynamic, 1000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(dynamic, 3000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(guided, 1000) reduction(+: tn1) reduction(+: tn2)
-        // #pragma omp parallel for schedule(guided, 3000) reduction(+: tn1) reduction(+: tn2)
+        #pragma omp parallel for reduction(+: tn1, tn2)
+        // #pragma omp parallel for schedule(static, 1000) reduction(+: tn1, tn2)
+        // #pragma omp parallel for schedule(static, 3000) reduction(+: tn1, tn2)
+        // #pragma omp parallel for schedule(dynamic, 1000) reduction(+: tn1, tn2)
+        // #pragma omp parallel for schedule(dynamic, 3000) reduction(+: tn1, tn2)
+        // #pragma omp parallel for schedule(guided, 1000) reduction(+: tn1, tn2)
+        // #pragma omp parallel for schedule(guided, 3000) reduction(+: tn1, tn2)
         for (int i = 0; i < n; ++i) {
             double AynTmp = 0.0;
             for (int j = 0; j < n; ++j) {
@@ -139,12 +139,12 @@ void omp2(double *A, double *x, double *b, int n) {
             }
 
             // Check if solution is found
-            #pragma omp for reduction(+: lenYn) reduction(+: lenB)
+            #pragma omp for reduction(+: lenYn, lenB)
             for (int i = 0; i < n; ++i) {
                 lenYn += yn[i] * yn[i];
                 lenB += b[i] * b[i];
             }
-            #pragma omp barrier
+            #pragma omp single
             {
                 if (sqrt(lenYn / lenB) < EPSILON) {
                     running = false;
@@ -153,7 +153,7 @@ void omp2(double *A, double *x, double *b, int n) {
 
             if (running) {
                 // Calculating Tn
-                #pragma omp for reduction(+: tn1) reduction(+: tn2)
+                #pragma omp for reduction(+: tn1, tn2)
                 for (int i = 0; i < n; ++i) {
                     double AynTmp = 0.0;
                     for (int j = 0; j < n; ++j) {
@@ -171,7 +171,7 @@ void omp2(double *A, double *x, double *b, int n) {
                 }
             }
 
-            #pragma omp barrier
+            #pragma omp single
             {
                 lenYn = 0.0;
                 lenB = 0.0;
