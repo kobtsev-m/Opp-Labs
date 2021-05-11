@@ -5,17 +5,18 @@
 #define EPSILON (10e-3)
 #define INF (10e6)
 
+
 double randDouble(double max) {
     return static_cast<double>(rand()) / (static_cast<double>(RAND_MAX / max));
 }
 
 void fillData(double *A, double *x, double *b, int n) {
+    double u[n];
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < n; ++j) {
             A[j + i*n] = (double)(i == j ? i*i : i+j);
         }
     }
-    auto *u = new double[n];
     for (int i = 0; i < n; ++i) {
         x[i] = randDouble(1000.0);
         u[i] = randDouble(1000.0);
@@ -26,7 +27,6 @@ void fillData(double *A, double *x, double *b, int n) {
             b[i] += A[j + i*n] * u[j];
         }
     }
-    delete[] u;
 }
 
 double* calculateYn(double *A, double *x, double *b, int n) {
@@ -41,30 +41,26 @@ double* calculateYn(double *A, double *x, double *b, int n) {
 }
 
 bool isSolutionFound(double *yn, double *b, int n) {
-    auto *length = new double[2]();
+    double lengthYn = 0.0, lengthB = 0.0;
     for (int i = 0; i < n; ++i) {
-        length[0] += yn[i] * yn[i];
-        length[1] += b[i] * b[i];
+        lengthYn += yn[i] * yn[i];
+        lengthB += b[i] * b[i];
     }
-    bool isFound = sqrt(length[0] / length[1]) < EPSILON;
-    delete[] length;
-    return isFound;
+    return sqrt(lengthYn / lengthB) < EPSILON;
 }
 
 double calculateTn(double *A, double *yn, int n) {
-    auto *tn = new double[2]();
+    double tn1 = 0.0, tn2 = 0.0;
     double AynTmp;
     for (int i = 0; i < n; ++i) {
         AynTmp = 0.0;
         for (int j = 0; j < n; ++j) {
             AynTmp += A[j + i*n] * yn[j];
         }
-        tn[0] += yn[i] * AynTmp;
-        tn[1] += AynTmp * AynTmp;
+        tn1 += yn[i] * AynTmp;
+        tn2 += AynTmp * AynTmp;
     }
-    double tnResult = tn[0] / tn[1];
-    delete[] tn;
-    return tnResult;
+    return tn1 / tn2;
 }
 
 void calculateNextX(double *x, double *yn, double tn, int n) {
@@ -73,44 +69,16 @@ void calculateNextX(double *x, double *yn, double tn, int n) {
     }
 }
 
-double calculateElapsedTime(struct timeval startTime, struct timeval endTime) {
-    double deltaSec = (endTime.tv_sec - startTime.tv_sec);
-    double deltaUSec = (endTime.tv_usec - startTime.tv_usec);
-    return deltaSec + deltaUSec/10e6;
+void printAnswer(double *x, int n) {
+    for (int i = 0; i < n; ++i) {
+        printf("x%d: %.1f", i, x[i]);
+    }
 }
 
-double iter(int n) {
-
-    auto *A = new double[n * n];
-    auto *x = new double[n];
-    auto *b = new double[n];
-    struct timeval startTime, endTime;
-
-    fillData(A, x, b, n);
-
-    gettimeofday(&startTime, nullptr);
-
-    for (int k = 0; k < INF; ++k) {
-        double *yn = calculateYn(A, x, b, n);
-
-        if (isSolutionFound(yn, b, n)) {
-            delete[] yn;
-            break;
-        }
-
-        double tn = calculateTn(A, yn, n);
-
-        calculateNextX(x, yn, tn, n);
-        delete[] yn;
-    }
-
-    gettimeofday(&endTime, nullptr);
-
-    delete[] A;
-    delete[] x;
-    delete[] b;
-
-    return calculateElapsedTime(startTime, endTime);
+void calculateWorkTime(struct timeval startTime, struct timeval endTime) {
+    double deltaSec = (endTime.tv_sec - startTime.tv_sec);
+    double deltaUSec = (endTime.tv_usec - startTime.tv_usec);
+    printf("Working time: %.2f seconds\n", deltaSec + deltaUSec / 1e6);
 }
 
 int main(int argc, char *argv[]) {
@@ -121,7 +89,35 @@ int main(int argc, char *argv[]) {
     }
 
     int n = atoi(argv[1]);
-    printf("Working time: %.2f seconds\n", iter(n));
+
+    struct timeval startTime, endTime;
+    auto *A = new double[n * n];
+    auto *x = new double[n];
+    auto *b = new double[n];
+
+    fillData(A, x, b, n);
+
+    gettimeofday(&startTime, nullptr);
+
+    for (int k = 0; k < INF; ++k) {
+        double *yn = calculateYn(A, x, b, n);
+        if (isSolutionFound(yn, b, n)) {
+            delete[] yn;
+            break;
+        }
+        double tn = calculateTn(A, yn, n);
+        calculateNextX(x, yn, tn, n);
+        delete[] yn;
+    }
+
+    gettimeofday(&endTime, nullptr);
+
+    printAnswer(x, 10);
+    printWorkTime(startTime, endTime);
+
+    delete[] A;
+    delete[] x;
+    delete[] b;
 
     return 0;
 }
