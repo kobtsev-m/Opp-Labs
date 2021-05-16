@@ -10,7 +10,7 @@ void fillData(double *A, double *B, int n1, int n2, int n3) {
     }
     for (int i = 0; i < n2; ++i) {
         for (int j = 0; j < n3; ++j) {
-            B[i*n3 + j] = 2.0;
+            B[i*n3 + j] = (double)i;
         }
     }
 }
@@ -19,7 +19,7 @@ void mulMatrix(double *A, double *B, double *C, int n1, int n2, int n3) {
     for (int i = 0; i < n1; ++i) {
         for (int j = 0; j < n3; ++j) {
             for (int k = 0; k < n2; ++k) {
-                C[i*n3 + j] += A[i*n2 + k] * B[k*n3 + j];
+                C[i*n3 + j] += A[i*n2 + k] * B[j*n2 + k];
             }
         }
     }
@@ -51,9 +51,9 @@ void calculateDisplacements(
     int colsDisplacement = 0;
     for (int y = 0; y < procCols; ++y) {
         int ym = calculateChunkSize(n3, procCols, y);
-        colsSizes[y] = ym * n2;
+        colsSizes[y] = ym;
         colsDisplacements[y] = colsDisplacement;
-        colsDisplacement += ym * n2;
+        colsDisplacement += ym;
     }
     int blocksDisplacement = 0;
     for (int x = 0; x < procRows; ++x) {
@@ -107,12 +107,13 @@ int main(int argc, char *argv[]) {
 
     MPI_Init(&argc, &argv);
     MPI_Comm matrixComm, rowsComm, colsComm;
+    MPI_Datatype colType, colTypeResized;
 
     int procRows = 4;
     int procCols = 4;
-    int n1 = 3000;
-    int n2 = 2000;
-    int n3 = 1000;
+    int n1 = 333;
+    int n2 = 222;
+    int n3 = 111;
 
     int matrixDims[2] = {procRows, procCols};
     int matrixPeriods[2] = {false, false};
@@ -150,18 +151,19 @@ int main(int argc, char *argv[]) {
     rowsM = calculateChunkSize(n1, procRows, xRank);
     colsM = calculateChunkSize(n3, procCols, yRank);
 
-    // Рассчёт сдвигов для процессов
     if (xRank == 0 && yRank == 0) {
+        // Рассчёт сдвигов и размеров чанков для процессов
         calculateDisplacements(
             rowsSizes, rowsDisplacements,
             colsSizes, colsDisplacements,
             blocksSizes, blocksDisplacements,
             procRows, procCols, n1, n2, n3
         );
-    }
-
-    // Заполнение матриц
-    if (xRank == 0 && yRank == 0) {
+        // Создание производного типа для раздачи столбцов матрицы B
+        MPI_Type_vector(n2, 1, n3, MPI_DOUBLE, &colType);
+        MPI_Type_create_resized(colType, 0, sizeof(double), &colTypeResized);
+        MPI_Type_commit(&colTypeResized);
+        // Выделение памяти под матрицы и их заполнение
         A = new double[n1 * n2];
         B = new double[n2 * n3];
         tmpC = new double[n1 * n3];
@@ -185,7 +187,7 @@ int main(int argc, char *argv[]) {
     }
     if (xRank == 0) {
         MPI_Scatterv(
-            B, colsSizes, colsDisplacements, MPI_DOUBLE,
+            B, colsSizes, colsDisplacements, colTypeResized,
             blockB, colsM * n2, MPI_DOUBLE,
             0, colsComm
         );
@@ -214,17 +216,21 @@ int main(int argc, char *argv[]) {
 
     double endTime = MPI_Wtime();
 
-    delete[] blockA;
-    delete[] blockB;
     delete[] blockC;
+    delete[] blockB;
+    delete[] blockA;
 
     if (xRank == 0 && yRank == 0) {
+        // Вывод результата
         printResult(C, n3, 10, 10);
         printWorkTime(startTime, endTime);
-        delete[] A;
-        delete[] B;
-        delete[] tmpC;
+        // Очистка памяти
         delete[] C;
+        delete[] tmpC;
+        delete[] B;
+        delete[] A;
+        MPI_Type_free(&colTypeResized);
+        MPI_Type_free(&colType);
     }
 
     MPI_Finalize();
