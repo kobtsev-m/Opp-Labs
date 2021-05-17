@@ -5,18 +5,18 @@
 const double EPSILON = 10e-8;
 const double A_CONST = 10e5;
 
-const int NX = 256;
-const int NY = 16;
-const int NZ = 16;
+const int NX = 128;
+const int NY = 8;
+const int NZ = 8;
 
 const double X0 = -1.0;
 const double Y0 = -1.0;
 const double Z0 = -1.0;
 const double PHI0 = 0.0;
 
-const double HX = 1.0 / (double)(NX - 1);
-const double HY = 1.0 / (double)(NY - 1);
-const double HZ = 1.0 / (double)(NZ - 1);
+const double HX = 2.0 / (double)(NX - 1);
+const double HY = 2.0 / (double)(NY - 1);
+const double HZ = 2.0 / (double)(NZ - 1);
 
 
 int calculateChunkSize(int n, int pSize, int pRank) {
@@ -73,8 +73,8 @@ void fillInitialData(double **phi, int pSize, int pRank, int chunkSize) {
         for (int j = 0; j < NY; ++j) {
             for (int k = 0; k < NZ; ++k) {
                 if (checkForInnerBorder(pSize, pRank, chunkSize, i, j, k)) {
-                    int idx = i - 1 + pRank*(chunkSize - 2);
-                    phi[i][j*NZ + k] = calculatePhi(idx, j, k);
+                    int idx = calculateChunkDiplacement(NX, pSize, pRank);
+                    phi[i][j*NZ + k] = calculatePhi(idx + i, j, k);
                 } else{
                     phi[i][j*NZ + k] = PHI0;
                 }
