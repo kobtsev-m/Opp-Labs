@@ -25,16 +25,16 @@ int calculateChunkSize(int n, int pSize, int pRank) {
         idx += m;
         m = (n - idx) / (pSize - i);
     }
-    return m + 2;
+    return m;
 }
 
-int calculateChunkDiplacement(int n, int pSize, int pRank) {
+int calculateChunkDisplacement(int n, int pSize, int pRank) {
     int m = 0, idx = 0;
     for (int i = 0; i < pRank + 1; ++i) {
         idx += m;
         m = (n - idx) / (pSize - i);
     }
-    return idx + 2*pRank;
+    return idx;
 }
 
 double calculatePhi(int i, int j, int k) {
@@ -73,7 +73,7 @@ void fillInitialData(double **phi, int pSize, int pRank, int chunkSize) {
         for (int j = 0; j < NY; ++j) {
             for (int k = 0; k < NZ; ++k) {
                 if (checkForInnerBorder(pSize, pRank, chunkSize, i, j, k)) {
-                    int idx = calculateChunkDiplacement(NX, pSize, pRank);
+                    int idx = calculateChunkDisplacement(NX, pSize, pRank);
                     phi[i][j*NZ + k] = calculatePhi(idx + i, j, k);
                 } else{
                     phi[i][j*NZ + k] = PHI0;
@@ -104,7 +104,7 @@ double calculateAccuracy(double** phi,int pRank, int pSize, int chunkSize) {
                 if (checkForOuterBorder(pSize, pRank, chunkSize, i)) {
                     continue;
                 }
-                int idx = calculateChunkDiplacement(NX, pSize, pRank);
+                int idx = calculateChunkDisplacement(NX, pSize, pRank);
                 tmpDiff = std::abs(phi[i][j*NZ+k] - calculatePhi(idx + i, j, k));
                 maxDiff = tmpDiff > maxDiff ? tmpDiff : maxDiff;
             }
@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
     MPI_Request sendRecvRequest[4];
     MPI_Status sendRecvStatus[4];
 
-    int chunkSize = calculateChunkSize(NX, pSize, pRank);
+    int chunkSize = calculateChunkSize(NX, pSize, pRank) + 2;
     int iter = 0;
 
     double **phi = new double* [chunkSize];
