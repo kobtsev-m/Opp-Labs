@@ -200,7 +200,6 @@ int main(int argc, char *argv[]) {
 
     // Подсчёт блока на каждом процессе
     mulMatrix(blockA, blockB, blockC, rowsM, n2, colsM);
-    MPI_Barrier(matrixComm);
 
     // Сбор матрицы C со всех процессов
     MPI_Gatherv(

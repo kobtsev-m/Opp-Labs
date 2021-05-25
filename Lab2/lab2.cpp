@@ -72,7 +72,7 @@ void ompV1(double *A, double *x, double *b, int n) {
         }
 
         // Calculating Tn
-        #pragma omp parallel for schedule(static) reduction(+: tn1, tn2)]
+        #pragma omp parallel for schedule(static) reduction(+: tn1, tn2)
         for (int i = 0; i < n; ++i) {
             double AynTmp = 0.0;
             for (int j = 0; j < n; ++j) {
