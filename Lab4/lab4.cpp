@@ -118,12 +118,10 @@ int main(int argc, char* argv[]) {
     MPI_Init(&argc,&argv);
 
     int pSize, pRank;
+    int sendRecvTag = 0;
+
     MPI_Comm_size(MPI_COMM_WORLD, &pSize);
     MPI_Comm_rank(MPI_COMM_WORLD, &pRank);
-
-    int sendRecvTag = 0;
-    MPI_Request sendRecvRequest[4];
-    MPI_Status sendRecvStatus[4];
 
     int chunkSize = calculateChunkSize(NX, pSize, pRank) + 2;
     int iter = 0;
@@ -144,6 +142,9 @@ int main(int argc, char* argv[]) {
     startTime = MPI_Wtime();
 
     for (; maxDiff >= EPSILON; ++iter) {
+
+        MPI_Request sendRecvRequest[4];
+        MPI_Status sendRecvStatus[4];
 
         // Копирование значений в prevPhi
         for (int i = 0; i < chunkSize; ++i) {
