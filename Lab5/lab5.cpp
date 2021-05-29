@@ -31,24 +31,23 @@ pthread_mutex_t mutexList[] = {
     givenTasksMutex
 };
 
-int pRank, pSize, iter = 0;
+int pRank, pSize;
 int* taskList;
 int givenTasks, ownTaskIdx;
-double localRes = 0.0;
 
 int getTasksToGive() {
     return pSize / (pRank + 1);
 }
 
-void calculate(int taskIdx) {
+void calculate(double *localRes, int taskIdx) {
     for (int i = 0; i < taskList[taskIdx]; ++i) {
-        localRes += exp(sin(i));
+        *localRes += exp(sin(i));
     }
 }
 
-void refreshTaskList() {
+void refreshTaskList(int iter) {
     pthread_mutex_lock(&taskListMutex);
-    for (int i = 0; i < TASKS_ON_PROC * pSize; ++i) {
+    for (int i = pRank * TASKS_ON_PROC; i < (pRank + 1) * TASKS_ON_PROC; ++i) {
         taskList[i] = std::abs(50 - i % TASKS_ON_PROC) * std::abs(pRank - (iter % pSize)) * L_CONST;
     }
     pthread_mutex_unlock(&taskListMutex);
@@ -79,15 +78,15 @@ bool getNewTasks(int sponsor, int *receivedTasks, int *otherTaskIdx) {
 void* workingTask(void*) {
     int localTasksCounter, tasksCounter;
     double startTime, localTime, maxTime, minTime;
-    double avaregeImbalance = 0;
-    double globalRes;
+    double avaregeImbalance = 0.0;
+    double localRes = 0.0, globalRes;
 
-    while (iter < ITERS_TOTAL) {
+    for (int iter = 0; iter < ITERS_TOTAL; ++iter) {
         if (pRank == MAIN_PROC) {
             printf("-----------ITER %d-----------\n", iter);
         }
 
-        refreshTaskList();
+        refreshTaskList(iter);
         localTasksCounter = 0;
 
         pthread_mutex_lock(&ownIdxMutex);
@@ -100,7 +99,7 @@ void* workingTask(void*) {
         startTime = MPI_Wtime();
 
         while (ownTaskIdx < TASKS_ON_PROC * (pRank + 1) - givenTasks) {
-            calculate(ownTaskIdx);
+            calculate(&localRes, ownTaskIdx);
             pthread_mutex_lock(&ownIdxMutex);
             ownTaskIdx++;
             pthread_mutex_unlock(&ownIdxMutex);
@@ -114,7 +113,7 @@ void* workingTask(void*) {
                 int receivedTasks, otherTaskIdx;
                 if (currRank != pRank && getNewTasks(currRank, &receivedTasks, &otherTaskIdx)) {
                     for (int i = 0; i < receivedTasks; ++i) {
-                        calculate(otherTaskIdx);
+                        calculate(&localRes, otherTaskIdx);
                         otherTaskIdx++;
                         localTasksCounter++;
                     }
@@ -140,9 +139,7 @@ void* workingTask(void*) {
             printf("Imbalance proportion: %.2f%%\n", (maxTime - minTime) / maxTime * 100);
             avaregeImbalance += (maxTime - minTime) / maxTime * 100;
         }
-
         MPI_Barrier(MPI_COMM_WORLD);
-        iter++;
     }
 
     int sendMsg = WORK_DONE;
@@ -155,6 +152,7 @@ void* workingTask(void*) {
         printf("Global result: %.2f\n", localRes);
         printf("Average imbalance: %.2f%%\n", avaregeImbalance / ITERS_TOTAL);
     }
+
     return NULL;
 }
 
@@ -163,7 +161,7 @@ void* sendingTask(void*) {
     MPI_Status recvStatus;
     int sendMsg, recvMsg;
 
-    while (iter < ITERS_TOTAL) {
+    while (true) {
         MPI_Recv(&recvMsg, 1, MPI_INT, MPI_ANY_SOURCE, REQUEST_TAG, MPI_COMM_WORLD, &recvStatus);
         int sender = recvStatus.MPI_SOURCE;
         bool otherProcNeedTasks = recvMsg == ASK_FOR_TASK && sender != pRank;
@@ -218,6 +216,13 @@ int main(int argc, char *argv[]) {
         return ERROR_STATUS;
     }
 
+    int setStateRes = pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_JOINABLE);
+    if (setStateRes != SUCCESS_STATUS) {
+        fprintf(stderr, "Error on setting detach state\n");
+        MPI_Finalize();
+        return ERROR_STATUS;
+    }
+
     for (int i = 0; i < MUTEX_TOTAL; ++i) {
         int mutexInitRes = pthread_mutex_init(&mutexList[i], NULL);
         if (mutexInitRes != SUCCESS_STATUS) {
@@ -225,13 +230,6 @@ int main(int argc, char *argv[]) {
             MPI_Finalize();
             return ERROR_STATUS;
         }
-    }
-
-    int setStateRes = pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_JOINABLE);
-    if (setStateRes != SUCCESS_STATUS) {
-        fprintf(stderr, "Error on setting detach state\n");
-        MPI_Finalize();
-        return ERROR_STATUS;
     }
 
     pthread_t threads[2];
