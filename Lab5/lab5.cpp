@@ -78,7 +78,7 @@ bool getNewTasks(int sponsor, int *receivedTasks, int *otherTaskIdx) {
 void* workingTask(void*) {
     int localTasksCounter, tasksCounter;
     double startTime, localTime, maxTime, minTime;
-    double avaregeImbalance = 0.0;
+    double averageImbalance = 0.0;
     double localRes = 0.0, globalRes;
 
     for (int iter = 0; iter < ITERS_TOTAL; ++iter) {
@@ -137,7 +137,7 @@ void* workingTask(void*) {
             printf("Tasks total: %d\n", tasksCounter);
             printf("Imbalance time: %.2f\n", maxTime - minTime);
             printf("Imbalance proportion: %.2f%%\n", (maxTime - minTime) / maxTime * 100);
-            avaregeImbalance += (maxTime - minTime) / maxTime * 100;
+            averageImbalance += (maxTime - minTime) / maxTime * 100;
         }
         MPI_Barrier(MPI_COMM_WORLD);
     }
@@ -149,8 +149,8 @@ void* workingTask(void*) {
 
     if (pRank == MAIN_PROC) {
         printf("----------RESULTS-----------\n");
-        printf("Global result: %.2f\n", localRes);
-        printf("Average imbalance: %.2f%%\n", avaregeImbalance / ITERS_TOTAL);
+        printf("Global result: %.2f\n", globalRes);
+        printf("Average imbalance: %.2f%%\n", averageImbalance / ITERS_TOTAL);
     }
 
     return NULL;
