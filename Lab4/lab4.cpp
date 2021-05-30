@@ -45,34 +45,29 @@ double calculatePhi(int i, int j, int k) {
 }
 
 double calculateRo(double **prevPhi, int i, int j, int k) {
-    return 6 - A_CONST*prevPhi[i][j*NZ + k];
+    return 6.0 - A_CONST*prevPhi[i][j*NZ + k];
 }
 
 void calculateNextPhi(double **phi, double **prevPhi, int i, int j, int k) {
     double xPart = (prevPhi[i + 1][j*NZ + k] + prevPhi[i - 1][j*NZ + k]) / (HX*HX);
-    double yPart = (prevPhi[i][(j+1)*NZ + k] + prevPhi[i][(j - 1)*NZ + k]) / (HY*HY);
-    double zPart = (prevPhi[i][j*NZ + (k+1)] + prevPhi[i][j*NZ + (k - 1)]) / (HZ*HZ);
+    double yPart = (prevPhi[i][(j+1)*NZ + k] + prevPhi[i][(j-1)*NZ + k]) / (HY*HY);
+    double zPart = (prevPhi[i][j*NZ + (k+1)] + prevPhi[i][j*NZ + (k-1)]) / (HZ*HZ);
     phi[i][j*NZ + k] = xPart + yPart + zPart - calculateRo(prevPhi, i, j, k);
-    phi[i][j*NZ + k] /= (2/(HX*HX) + 2/(HY*HY) + 2/(HZ*HZ) + A_CONST);
+    phi[i][j*NZ + k] /= (2.0 / (HX*HX) + 2.0 / (HY*HY) + 2.0 / (HZ*HZ) + A_CONST);
 }
 
-bool checkForInnerBorder(int pSize, int pRank, int chunkSize, int i, int j, int k) {
+bool checkForBorder(int pSize, int pRank, int chunkSize, int i, int j, int k) {
     return (pRank == 0 && i == 1) ||
            (pRank == pSize - 1 && i == chunkSize - 2) ||
            (j == 0 || k == 0) ||
            (j == NY - 1 || k == NZ - 1);
 }
 
-bool checkForOuterBorder(int pSize, int pRank, int chunkSize, int i) {
-    return (pRank == 0 && i == 0) ||
-           (pRank == pSize - 1 && i == chunkSize - 1);
-}
-
 void fillInitialData(double **phi, int pSize, int pRank, int chunkSize) {
-    for (int i = 1; i < chunkSize - 2; ++i) {
+    for (int i = 1; i < chunkSize - 1; ++i) {
         for (int j = 0; j < NY; ++j) {
             for (int k = 0; k < NZ; ++k) {
-                if (checkForInnerBorder(pSize, pRank, chunkSize, i, j, k)) {
+                if (checkForBorder(pSize, pRank, chunkSize, i, j, k)) {
                     int idx = calculateChunkDisplacement(NX, pSize, pRank);
                     phi[i][j*NZ + k] = calculatePhi(idx + i, j, k);
                 } else{
@@ -83,12 +78,12 @@ void fillInitialData(double **phi, int pSize, int pRank, int chunkSize) {
     }
 }
 
-double calculateEpsilon(double** fi, double** prevPhi, int chunkSize) {
+double calculateEpsilon(double **phi, double **prevPhi, int chunkSize) {
     double maxDiff = 0, tmpDiff;
     for (int i = 1; i < chunkSize - 1; ++i) {
-        for (int j = 1; j < NY - 1; ++j) {
-            for (int k = 1; k < NZ - 1; ++k) {
-                tmpDiff = std::abs(fi[i][j*NZ + k] - prevPhi[i][j*NZ + k]);
+        for (int j = 0; j < NY; ++j) {
+            for (int k = 0; k < NZ; ++k) {
+                tmpDiff = std::abs(phi[i][j*NZ + k] - prevPhi[i][j*NZ + k]);
                 maxDiff = tmpDiff > maxDiff ? tmpDiff : maxDiff;
             }
         }
@@ -96,14 +91,11 @@ double calculateEpsilon(double** fi, double** prevPhi, int chunkSize) {
     return maxDiff;
 }
 
-double calculateAccuracy(double** phi,int pRank, int pSize, int chunkSize) {
+double calculateAccuracy(double **phi, int pRank, int pSize, int chunkSize) {
     double maxDiff = 0, tmpDiff;
-    for (int i = 0; i < chunkSize; ++i) {
+    for (int i = 1; i < chunkSize - 1; ++i) {
         for (int j = 0; j < NY; ++j) {
             for (int k = 0; k < NZ; ++k) {
-                if (checkForOuterBorder(pSize, pRank, chunkSize, i)) {
-                    continue;
-                }
                 int idx = calculateChunkDisplacement(NX, pSize, pRank);
                 tmpDiff = std::abs(phi[i][j*NZ+k] - calculatePhi(idx + i, j, k));
                 maxDiff = tmpDiff > maxDiff ? tmpDiff : maxDiff;
@@ -113,7 +105,7 @@ double calculateAccuracy(double** phi,int pRank, int pSize, int chunkSize) {
     return maxDiff;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
 
     MPI_Init(&argc,&argv);
 
@@ -147,7 +139,7 @@ int main(int argc, char* argv[]) {
         MPI_Status sendRecvStatus[4];
 
         // Копирование значений в prevPhi
-        for (int i = 0; i < chunkSize; ++i) {
+        for (int i = 1; i < chunkSize - 1; ++i) {
             for (int j = 0; j < NY; ++j) {
                 for (int k = 0; k < NZ; ++k) {
                     prevPhi[i][j*NZ + k] = phi[i][j*NZ + k];
@@ -156,22 +148,30 @@ int main(int argc, char* argv[]) {
         }
 
         // Подсчёт значений на границах
-        for (int j = 0; j < NY; ++j) {
-            for (int k = 0; k < NZ; ++k) {
-                if (pRank != 0) {
+        if (pRank != 0) {
+            for (int j = 1; j < NY - 1; ++j) {
+                for (int k = 1; k < NZ - 1; ++k) {
                     calculateNextPhi(phi, prevPhi, 1, j, k);
                 }
-                if (pRank != pSize - 1) {
+            }
+        }
+        if (pRank != pSize - 1)
+            for (int j = 1; j < NY - 1; ++j) {
+                for (int k = 1; k < NZ - 1; ++k) {
                     calculateNextPhi(phi, prevPhi, chunkSize - 2, j, k);
                 }
             }
         }
 
-        // Рассылка границ соседним процессам
+        // Пересылка границ с соседними процессами
         if (pRank != 0) {
             MPI_Isend(
                 phi[1], NY * NZ, MPI_DOUBLE, pRank - 1, sendRecvTag,
                 MPI_COMM_WORLD, &sendRecvRequest[0]
+            );
+            MPI_Irecv(
+                phi[0], NY * NZ, MPI_DOUBLE, pRank - 1, sendRecvTag,
+                MPI_COMM_WORLD, &sendRecvRequest[2]
             );
         }
         if (pRank != pSize - 1) {
@@ -179,29 +179,19 @@ int main(int argc, char* argv[]) {
                 phi[chunkSize - 2], NY * NZ, MPI_DOUBLE, pRank + 1, sendRecvTag,
                 MPI_COMM_WORLD, &sendRecvRequest[1]
             );
+            MPI_Irecv(
+                phi[chunkSize - 1], NY * NZ, MPI_DOUBLE, pRank + 1, sendRecvTag,
+                MPI_COMM_WORLD, &sendRecvRequest[3]
+            );
         }
 
         // Подсчёт остальных значений на текущей итерации
         for (int i = 2; i < chunkSize - 2; ++i) {
-            for (int j = 0; j < NY; ++j) {
-                for (int k = 0; k < NZ; ++k) {
+            for (int j = 1; j < NY - 1; ++j) {
+                for (int k = 1; k < NZ - 1; ++k) {
                     calculateNextPhi(phi, prevPhi, i, j, k);
                 }
             }
-        }
-
-        // Получение границ с соседних процессов
-        if (pRank != 0) {
-            MPI_Irecv(
-                phi[chunkSize - 1], NY * NZ, MPI_DOUBLE, pRank - 1, sendRecvTag,
-                MPI_COMM_WORLD, &sendRecvRequest[2]
-            );
-        }
-        if (pRank != pSize - 1) {
-            MPI_Irecv(
-                phi[0], NY * NZ, MPI_DOUBLE, pRank + 1, sendRecvTag,
-                MPI_COMM_WORLD, &sendRecvRequest[3]
-            );
         }
 
         // Ожидание завершения неблокирущих операций
